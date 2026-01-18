@@ -1,0 +1,60 @@
+version: "3.9"
+
+services:
+  uptime-kuma:
+    image: louislam/uptime-kuma:latest
+    container_name: uptime-kuma
+    restart: unless-stopped
+    volumes:
+      - uptime-kuma-data:/app/data
+    networks:
+      - web
+
+  nginx:
+    image: nginx:latest
+    container_name: nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - nginx-conf:/etc/nginx/conf.d
+      - certbot-certs:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    depends_on:
+      - uptime-kuma
+    networks:
+      - web
+
+  certbot:
+    image: certbot/certbot
+    container_name: certbot
+    volumes:
+      - certbot-certs:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    entrypoint: >
+      sh -c "
+      certbot certonly --webroot
+      --webroot-path=/var/www/certbot
+      --email admin@seudominio.com
+      --agree-tos
+      --no-eff-email
+      -d seu-dominio.com &&
+      trap exit TERM;
+      while :; do
+        certbot renew;
+        sleep 12h;
+      done
+      "
+    networks:
+      - web
+
+networks:
+  web:
+    driver: bridge
+
+volumes:
+  uptime-kuma-data:
+  certbot-certs:
+  certbot-www:
+  nginx-conf:

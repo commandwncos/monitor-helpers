@@ -1,0 +1,131 @@
+#!/bin/bash
+# ======================================================
+# Script to create Resource Group, Storage Account,
+# Container, Key Vault and store secrets for Terraform
+# ======================================================
+
+# -----------------------
+# Variables
+# -----------------------
+LOCATION="eastus"
+
+# Generate a random UUID for RG
+RG_UUID=$(uuidgen | tr '[:upper:]' '[:upper:]')
+RG_NAME="RG-${RG_UUID}"
+
+# Storage Account
+STORAGE_PREFIX="tfstate"
+SA_RANDOM=$(echo $RANDOM | md5sum | cut -c1-6) 
+SA_NAME="${STORAGE_PREFIX}${SA_RANDOM}"
+SA_NAME=$(echo $SA_NAME | tr '[:upper:]' '[:lower:]')
+
+# Container
+CONTAINER_NAME="terraformstate"
+
+# Key Vault
+KV_PREFIX="kv-tf"
+KV_RANDOM=$(echo $RANDOM | md5sum | cut -c1-6)
+KV_NAME="${KV_PREFIX}${KV_RANDOM}"
+KV_NAME=$(echo $KV_NAME | tr '[:upper:]' '[:lower:]')
+
+# Secret names
+SECRET_KEY="tfstate-key"
+SECRET_CONNECTION="tfstate-connectionstring"
+
+# -----------------------
+# Create Resource Group
+# -----------------------
+echo "Creating Resource Group: $RG_NAME"
+az group create \
+  --name $RG_NAME \
+  --location $LOCATION
+
+
+# Register required providers
+for provider in Microsoft.KeyVault Microsoft.Storage Microsoft.Resources
+do
+  echo "Registering $provider..."
+  az provider register --namespace $provider
+done
+
+
+# -----------------------
+# Create Storage Account
+# -----------------------
+echo "Creating Storage Account: $SA_NAME"
+az storage account create \
+  --name $SA_NAME \
+  --resource-group $RG_NAME \
+  --location $LOCATION \
+  --sku Standard_LRS \
+  --kind StorageV2 \
+  --https-only true 
+
+# -----------------------
+# Create Blob Container
+# -----------------------
+echo "Creating Blob Container: $CONTAINER_NAME"
+az storage container create \
+  --account-name $SA_NAME \
+  --name $CONTAINER_NAME
+
+# -----------------------
+# Create Key Vault
+# -----------------------
+echo "Creating Key Vault: $KV_NAME"
+az keyvault create \
+  --name $KV_NAME \
+  --resource-group $RG_NAME \
+  --location $LOCATION \
+  --sku standard 
+
+# -----------------------
+# Get Storage Account Key
+# -----------------------
+SA_KEY=$(az storage account keys list \
+  --resource-group $RG_NAME \
+  --account-name $SA_NAME \
+  --query '[0].value' -o tsv)
+
+# Get Storage Account Connection String
+CONNECTION_STRING=$(az storage account show-connection-string \
+  --name $SA_NAME \
+  --resource-group $RG_NAME \
+  -o tsv)
+
+# Get current user object ID and subscription ID
+USER_OBJECT_ID=$(az ad signed-in-user show --query id -o tsv   )
+SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+
+# Role assignment
+az role assignment create \
+  --assignee $USER_OBJECT_ID \
+  --role "Key Vault Secrets Officer" \
+  --scope "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.KeyVault/vaults/$KV_NAME"
+
+
+
+# -----------------------
+# Store Secrets in Key Vault
+# -----------------------
+echo "Storing secrets in Key Vault"
+az keyvault secret set \
+  --vault-name $KV_NAME \
+  --name $SECRET_KEY \
+  --value "$SA_KEY"
+
+az keyvault secret set \
+  --vault-name $KV_NAME \
+  --name $SECRET_CONNECTION \
+  --value "$CONNECTION_STRING"
+
+# -----------------------
+# Output
+# -----------------------
+echo "======================================================"
+echo "Resource Group: $RG_NAME"
+echo "Storage Account: $SA_NAME"
+echo "Container: $CONTAINER_NAME"
+echo "Key Vault: $KV_NAME"
+echo "Secrets: $SECRET_KEY, $SECRET_CONNECTION"
+echo "======================================================"
