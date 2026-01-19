@@ -1,0 +1,53 @@
+version: "3.8"
+
+services:  
+  mariadb: 
+    image: mariadb:10.11
+    container_name: mariadb
+    restart: always
+    environment:
+      MARIADB_DATABASE: kuma
+      MARIADB_USER: kuma_user
+      MARIADB_PASSWORD: kuma_password
+      MARIADB_ROOT_PASSWORD: root_password
+    volumes:
+      - mariadb_data:/var/lib/mariadb
+    networks:
+      - kuma-network
+
+  uptime-kuma:
+    image: louislam/uptime-kuma:2
+    container_name: uptime-kuma
+    restart: always
+    depends_on:
+      - mariadb
+    
+    ports:
+      - "3001:3001"
+    volumes:
+      - uptime_kuma_data:/app/data
+    networks:
+      - kuma-network
+    environment:
+      UPTIME_KUMA_DB_TYPE: mariadb
+      UPTIME_KUMA_DB_HOSTNAME: mariadb
+      UPTIME_KUMA_DB_PORT: 3306
+      UPTIME_KUMA_DB_NAME: kuma
+      UPTIME_KUMA_DB_USERNAME: kuma_user
+      UPTIME_KUMA_DB_PASSWORD: kuma_password
+  adminer:
+    image: adminer:latest
+    container_name: adminer
+    restart: always
+    ports:
+      - "8080:8080"
+    networks:
+      - kuma-network
+
+networks:
+  kuma-network:
+    driver: bridge
+
+volumes:
+  mariadb_data:
+  uptime_kuma_data:
